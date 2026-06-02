@@ -1,0 +1,18 @@
+[Unit]
+Description=Cleo {{feature_name}} service
+After=network.target nats.service
+Wants=nats.service
+
+[Service]
+Type=simple
+User=cleo
+WorkingDirectory=/opt/cleo/infra/agent-features/{{feature_name}}
+ExecStart=/opt/cleo/infra/agent-features/{{feature_name}}/.venv/bin/python -m {{feature_slug}}
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/opt/cleo/env/{{feature_name}}.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

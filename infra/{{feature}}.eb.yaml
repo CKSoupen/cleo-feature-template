@@ -1,0 +1,24 @@
+# EB allowlist for cleo-{{feature_name}}.
+# Specifies which event subjects this feature may publish and subscribe to.
+
+feature_id: "feat-{{feature_slug}}"
+feature_name: "{{feature_name}}"
+
+publish:
+  - subject: "feature.{{feature_slug}}.bug-report"
+    description: "Log a bug or improvement request"
+  - subject: "feature.{{feature_slug}}.subscribe"
+    description: "Subscribe a user to this feature"
+  - subject: "feature.{{feature_slug}}.unsubscribe"
+    description: "Unsubscribe a user from this feature"
+  - subject: "feature.subscribe.infra.complete"
+    description: "Confirm per-user infra setup complete"
+  - subject: "feature.unsubscribe.infra.complete"
+    description: "Confirm per-user infra teardown complete"
+
+subscribe:
+  - subject: "feature.{{feature_slug}}.subscribe"
+    description: "Trigger per-user subscribe flow"
+  - subject: "feature.{{feature_slug}}.unsubscribe"
+    description: "Trigger per-user unsubscribe flow"
+  # TODO: add feature-specific subscriptions
