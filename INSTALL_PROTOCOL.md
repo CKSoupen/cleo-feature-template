@@ -102,6 +102,29 @@ PA confirms subscription is complete with a summary to the user:
 
 ---
 
+## Part 3 — User Setup
+
+After Part 2 Step 4, the feature README is in the user's vault at `vault/4-Automation/my-agent-features/{{feature_name}}.md`. Part 3 is the user's PA following the README's **Installation section** to complete vault and state setup.
+
+### Step 1 — PA reads the feature README
+
+```
+vault/4-Automation/my-agent-features/{{feature_name}}.md
+```
+
+PA reads the **Installation** section (marked `<!-- PA start here -->`). This lists the vault/state steps specific to this feature and this user.
+
+### Step 2 — PA executes the installation steps
+
+PA follows the steps in order. Typical examples:
+- Create required vault directories (`2-Areas/self/calendar/`, `7-Sharing/manifest.json`, etc.)
+- Seed any initial state files
+- Verify the feature is working for this user
+
+Each feature's README defines exactly what Part 3 looks like. The infra subscribe (Part 2) and the vault setup (Part 3) are deliberately separate — subscribe.sh handles the system layer; the README handles the user layer.
+
+---
+
 ## Unsubscribe
 
 ```bash
