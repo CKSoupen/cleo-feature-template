@@ -2,9 +2,11 @@
 
 The **eventbridge (EB) is the spine** of the Cleo system. All agents communicate through it. Features are collections of event IDs that agents publish and subscribe to. The allowlist controls which agents receive which events.
 
+Feature lifecycle events are **standardised** — not per-feature. The same event names work for every feature; `feature_id` in the payload identifies which feature.
+
 Installing a feature is a two-phase process:
-- **Part 1 — Server install:** the feature's services and infra land on the server, available for any user to subscribe
-- **Part 2 — User subscribe:** a user's agent subscribes to the feature's event surface; vault and state are configured for that user
+- **Part 1 — Server install:** feature services and infra land on the server
+- **Part 2 — User subscribe:** a user's PA subscribes them to the feature
 
 ---
 
@@ -12,20 +14,12 @@ Installing a feature is a two-phase process:
 
 ### Step 1 — Clone from the marketplace
 
-A feature lives as a GitHub repo. Clone it into the canonical install location:
-
 ```bash
 git clone https://github.com/CKSoupen/cleo-{feature}.git \
   /opt/cleo/infra/agent-features/{feature}/
 ```
 
-**After the clone, nothing is installed.** You have:
-- Source code (`src/`)
-- Scripts: `install.sh`, `subscribe.sh`, `unsubscribe.sh`, `upgrade.sh`, `uninstall.sh`
-- Feature doc (`README.md`)
-- Infra templates (`infra/` — systemd unit files, EB config)
-
-The substrate is untouched. No services running. No EB config registered.
+After the clone: source code and scripts are on disk. Nothing is running. The substrate is untouched.
 
 ### Step 2 — Run install.sh
 
@@ -34,114 +28,104 @@ bash /opt/cleo/infra/agent-features/{feature}/install.sh
 ```
 
 `install.sh` is idempotent. It:
-1. Deploys systemd unit files from `infra/` to `/etc/systemd/system/`
-2. Enables and starts the services
-3. Registers the feature in `infra/agent-features/feature-catalog.json` (creates the file if it's the first feature)
+1. Deploys systemd unit files from `infra/` to `/etc/systemd/system/` and starts services
+2. Registers the feature entry in `infra/agent-features/feature-catalog.json`
 
-**After install.sh, the feature is live on the server.** Catalog status: `available` → `installed`.
-
-### Step 3 — Verify
-
-```bash
-systemctl status cleo-{feature}.service
-cat /opt/cleo/infra/agent-features/feature-catalog.json | jq '.features[] | select(.feature_id == "feat-{slug}")'
-```
+Part 1 is complete. The feature is live on the server. Any user can now subscribe.
 
 ---
 
 ## Part 2 — User Subscribe
 
-A user's PA subscribes them to a feature. Each user subscribes independently.
+### Step 1 — All agents discover available features
 
-### Step 4 — PA discovers available features
-
-At cold-start, PA reads the server catalog:
+At cold-start, every agent (PA, PM, Dev) reads:
 
 ```
 /opt/cleo/infra/agent-features/feature-catalog.json
 ```
 
-This tells PA what features are installed on this server and available to subscribe to.
+This is the shared feature surface for the whole household — what's installed, what event IDs each feature exposes, and what allowlist entries are needed to use it.
 
-### Step 5 — PA fires subscribe.requested
+### Step 2 — PA fires `feature.subscribe.requested`
 
-PA publishes to the eventbridge:
+When subscribing a user, PA publishes to the EB using the routing key `feature.subscribe.requested`:
 
 ```json
 {
-  "event_id": "feature.subscribe.requested",
-  "payload": {
-    "feature_id": "feat-{slug}",
-    "user": "{username}",
-    "reply_event_id": "{username}.feature.subscribe.completed",
-    "priority": "high"
-  }
+  "feature_id": "feat-{{feature_slug}}",
+  "user": "{{username}}",
+  "reply_event_id": "{{username}}.feature.subscribe.completed",
+  "priority": "high"
 }
 ```
 
-The `reply_event_id` is **user-namespaced** — `{username}.feature.subscribe.completed` — so only this user's PA receives the completion signal. Generic event IDs would reach all PAs.
+The `reply_event_id` is **user-namespaced** (`{{username}}.feature.subscribe.completed`) so only this user's PA receives the completion signal. PA reads the exact payload schema from `subscribe_event_payload` in the feature catalog.
 
-### Step 6 — subscribe.sh runs
+### Step 3 — subscribe.sh runs
 
-A handler (manual today; daemon in future) executes:
+A handler receives `feature.subscribe.requested` and executes:
 
 ```bash
-bash /opt/cleo/infra/agent-features/{feature}/subscribe.sh \
-  --user {username} \
-  --reply-event-id {username}.feature.subscribe.completed \
+bash /opt/cleo/infra/agent-features/{{feature_name}}/subscribe.sh \
+  --user {{username}} \
+  --reply-event-id {{username}}.feature.subscribe.completed \
   --priority high
 ```
 
 `subscribe.sh`:
-1. Sets up user-specific config (state dirs, service config entries)
-2. Adds the user to `feature-catalog.json` subscribers
-3. Fires `{username}.feature.subscribe.completed` at the specified priority
+1. Sets up user-specific config (state dirs, service config, env files)
+2. Adds `{{username}}` to `feature-catalog.json` subscribers list
+3. Fires `{{username}}.feature.subscribe.completed` at high priority
 
-### Step 7 — PA receives the completion event
+> **Today:** triggered manually. **Future:** a daemon listening for `feature.subscribe.requested` runs this automatically.
 
-Because PA's allowlist includes `{username}.feature.subscribe.completed`, the event lands in her EB inbox and is pushed at high priority. Only this user's PA receives it.
+### Step 4 — PA handles vault setup
 
-### Step 8 — PA handles vault setup
+Because `{{username}}.feature.subscribe.completed` is in PA's EB allowlist, the event lands in her inbox at high priority. PA handles it herself in her CC session (no daemon):
 
-On receipt of `{username}.feature.subscribe.completed`, PA:
-1. Reads `feature_id` from event payload
-2. Resolves feature name from `feature-catalog.json`
-3. Copies `infra/agent-features/{feature}/README.md` → `vault/4-Automation/my-agent-features/{feature}.md`
-4. Upserts `vault/4-Automation/my-agent-features/my-feature-catalog.json` with the feature entry
-5. Commits vault changes + notifies user
+1. Read `feature_id` from event payload
+2. Resolve `feature_name` from `infra/agent-features/feature-catalog.json`
+3. Copy `infra/agent-features/{{feature_name}}/README.md` → `vault/4-Automation/my-agent-features/{{feature_name}}.md`
+4. Upsert `vault/4-Automation/my-agent-features/my-feature-catalog.json` with the subscribed feature entry
+5. Commit vault changes
 
-### Step 9 — Cold-start awareness
+PA is the sole vault writer throughout. No other process touches the vault.
 
-At next cold-start, PA reads `vault/4-Automation/my-agent-features/my-feature-catalog.json` and has full awareness of:
-- Which features are installed for this user
-- All event IDs the feature exposes (without needing to read the full README)
+### Step 5 — PA notifies the user
+
+PA confirms subscription is complete with a summary to the user:
+- Feature subscribed
+- README available at `vault/4-Automation/my-agent-features/{{feature_name}}.md`
+- Event IDs now available (from `my-feature-catalog.json`)
+- Any post-subscription setup steps from the feature README (if applicable)
 
 ---
 
 ## Unsubscribe
 
 ```bash
-bash /opt/cleo/infra/agent-features/{feature}/unsubscribe.sh --user {username}
+bash /opt/cleo/infra/agent-features/{{feature_name}}/unsubscribe.sh --user {{username}}
 ```
 
-Reverses Step 6. Fires `{username}.feature.unsubscribe.completed`. PA handles vault teardown on receipt.
+Reverses Step 3. Fires `{{username}}.feature.unsubscribe.completed`. PA handles vault teardown on receipt.
 
 ## Uninstall (server-wide)
 
-All users must be unsubscribed first.
+All users must be unsubscribed first, then:
 
 ```bash
-bash /opt/cleo/infra/agent-features/{feature}/uninstall.sh
+bash /opt/cleo/infra/agent-features/{{feature_name}}/uninstall.sh
 ```
 
 Stops services, removes systemd units, removes entry from `feature-catalog.json`.
 
 ## Upgrade
 
-Upgrade is an explicit ceremony — not automatic.
+Upgrade is an explicit ceremony — never automatic:
 
 ```bash
-bash /opt/cleo/infra/agent-features/{feature}/upgrade.sh
+bash /opt/cleo/infra/agent-features/{{feature_name}}/upgrade.sh
 ```
 
-Runs uninstall + reinstall. All subscribers re-subscribe after. The `status: upgrade-available` flag in `feature-catalog.json` signals a new version is ready; the upgrade itself is always deliberately triggered.
+Runs uninstall + reinstall. All subscribers re-subscribe after. The `upgrade_available: true` flag in `feature-catalog.json` signals a new version is ready; the upgrade itself is always deliberately triggered.
