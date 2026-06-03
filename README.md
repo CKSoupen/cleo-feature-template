@@ -3,20 +3,24 @@ feature_id: "feat-{{feature_slug}}"
 name: "{{feature_name}}"
 version: "0.1.0"
 repo: "https://github.com/CKSoupen/cleo-{{feature_name}}"
-subscribe_event_id: "feature.{{feature_slug}}.subscribe"
-unsubscribe_event_id: "feature.{{feature_slug}}.unsubscribe"
-install_event_id: "feature.{{feature_slug}}.install"
-uninstall_event_id: "feature.{{feature_slug}}.uninstall"
+installed_at: null
+upgrade_available: false
+deprecated: false
 deps: []
-contact: "soupencameron@gmail.com"
+contact: "{{contact_email}}"
 sub_features:
   - id: "{{subfeature_id}}"
     description: "{{subfeature_description}}"
 feature_event_ids:
   - event_id: "feature.{{feature_slug}}.bug-report"
     description: "Log a bug or improvement request"
-  - event_id: "feature.{{feature_slug}}.unsubscribe"
-    description: "Unsubscribe this user from the feature"
+required_allowlist:
+  - "{user}.feature.subscribe.completed"
+subscribe_event_payload:
+  feature_id: "feat-{{feature_slug}}"
+  user: "{user}"
+  reply_event_id: "{user}.feature.subscribe.completed"
+  priority: "high"
 ---
 
 # Cleo Feature: {{feature_name}}
